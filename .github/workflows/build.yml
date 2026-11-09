@@ -69,34 +69,32 @@ jobs:
           shutil.copytree(os.path.join(src_dir, "lib"), os.path.join(build_dir, "lib"))
           shutil.copy2(os.path.join(src_dir, "pubspec.yaml"), os.path.join(build_dir, "pubspec.yaml"))
 
-          # Patch gradle (Java 11, desugaring 2.1.4, minSdk 21, multiDex, debug signing for release)
+          # Patch gradle (compileSdk 34, minSdk 23, desugaring 2.1.5, debug signing)
           os.chdir(build_dir)
           for gfile in ["android/app/build.gradle", "android/app/build.gradle.kts"]:
               if os.path.isfile(gfile):
                   with open(gfile, "r") as f:
                       g = f.read()
-                  g = g.replace("minSdk = flutter.minSdkVersion", "minSdk = 21\n        multiDexEnabled = true")
-                  g = g.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21\n        multiDexEnabled true")
-                  g = g.replace("sourceCompatibility = JavaVersion.VERSION_1_8", "sourceCompatibility = JavaVersion.VERSION_11\n        coreLibraryDesugaringEnabled true")
-                  g = g.replace("sourceCompatibility JavaVersion.VERSION_1_8", "sourceCompatibility JavaVersion.VERSION_11\n        coreLibraryDesugaringEnabled true")
-                  g = g.replace("targetCompatibility = JavaVersion.VERSION_1_8", "targetCompatibility = JavaVersion.VERSION_11")
-                  g = g.replace("targetCompatibility JavaVersion.VERSION_1_8", "targetCompatibility JavaVersion.VERSION_11")
-                  g = g.replace("jvmTarget = 1.8", "jvmTarget = \"11\"")
-                  g = g.replace("jvmTarget = JavaVersion.VERSION_1_8", "jvmTarget = \"11\"")
+                  g = g.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 34")
+                  g = g.replace("compileSdkVersion flutter.compileSdkVersion", "compileSdkVersion 34")
+                  g = g.replace("minSdk = flutter.minSdkVersion", "minSdk = 23\n        multiDexEnabled = true")
+                  g = g.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 23\n        multiDexEnabled true")
+                  g = g.replace("targetSdk = flutter.targetSdkVersion", "targetSdk = 34")
+                  g = g.replace("targetSdkVersion flutter.targetSdkVersion", "targetSdkVersion 34")
                   
                   if "coreLibraryDesugaringEnabled" not in g:
-                      g = g.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true\n        sourceCompatibility JavaVersion.VERSION_11\n        targetCompatibility JavaVersion.VERSION_11")
+                      g = g.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
                   
                   if "signingConfig = signingConfigs.debug" not in g and "signingConfig signingConfigs.debug" not in g:
                       g = g.replace("buildTypes {", "buildTypes {\n        release {\n            signingConfig = signingConfigs.debug\n        }")
                   
                   if "desugar_jdk_libs" not in g:
-                      g += "\ndependencies {\n    coreLibraryDesugaring \"com.android.tools:desugar_jdk_libs:2.1.4\"\n}\n"
+                      g += "\ndependencies {\n    coreLibraryDesugaring \"com.android.tools:desugar_jdk_libs:2.1.5\"\n}\n"
                   
                   with open(gfile, "w") as f:
                       f.write(g)
 
-          # Patch manifest (izin alarm, wake lock, dan receiver)
+          # Patch manifest (izin alarm, wake lock, dan receiver yang valid)
           mfile = "android/app/src/main/AndroidManifest.xml"
           if os.path.isfile(mfile):
               with open(mfile, "r") as f:
@@ -137,13 +135,21 @@ jobs:
 
       - name: 5. Build Release APK
         run: |
-          set -e
           cd /tmp/build_app
           flutter clean
           flutter pub get
-          flutter build apk --release --no-tree-shake-icons --verbose
+          flutter build apk --release --no-tree-shake-icons > /tmp/flutter_build.log 2>&1 || BUILD_FAILED=1
 
-          # Cari file APK yang dihasilkan
+          if [ "$BUILD_FAILED" = "1" ]; then
+            echo "### ❌ Build APK Gagal:" >> $GITHUB_STEP_SUMMARY
+            echo '```text' >> $GITHUB_STEP_SUMMARY
+            tail -n 80 /tmp/flutter_build.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/flutter_build.log
+            exit 1
+          fi
+
+          echo "### ✅ Build Release APK Berhasil Selesai!" >> $GITHUB_STEP_SUMMARY
           APK_FILE=$(find build/app/outputs -name "*.apk" | head -n 1)
           if [ -n "$APK_FILE" ]; then
             cp -f "$APK_FILE" "$GITHUB_WORKSPACE/app-release.apk"
