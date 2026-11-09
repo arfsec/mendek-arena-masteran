@@ -14,25 +14,22 @@ jobs:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 2. Set Up Java 17
+      - name: 2. Ekstrak ZIP Proyek
+        run: |
+          if [ -f "mendek_arena_masteran_burung_flutter.zip" ]; then
+            unzip -q -o mendek_arena_masteran_burung_flutter.zip
+          fi
+
+      - name: 3. Set Up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
 
-      - name: 3. Set Up Flutter 3.22+
+      - name: 4. Set Up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.2'
           channel: 'stable'
-          cache: true
-
-      - name: 4. Ekstrak ZIP Proyek Otomatis
-        run: |
-          if [ -f "mendek_arena_masteran_burung_flutter.zip" ]; then
-            unzip -q mendek_arena_masteran_burung_flutter.zip
-          fi
 
       - name: 5. Install Dependencies (pub get)
         run: |
