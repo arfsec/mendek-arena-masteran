@@ -69,7 +69,7 @@ jobs:
           shutil.copytree(os.path.join(src_dir, "lib"), os.path.join(build_dir, "lib"))
           shutil.copy2(os.path.join(src_dir, "pubspec.yaml"), os.path.join(build_dir, "pubspec.yaml"))
 
-          # Patch gradle
+          # Patch gradle (Java 11, desugaring 2.1.4, minSdk 21, multiDex, debug signing for release)
           os.chdir(build_dir)
           for gfile in ["android/app/build.gradle", "android/app/build.gradle.kts"]:
               if os.path.isfile(gfile):
@@ -77,14 +77,26 @@ jobs:
                       g = f.read()
                   g = g.replace("minSdk = flutter.minSdkVersion", "minSdk = 21\n        multiDexEnabled = true")
                   g = g.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21\n        multiDexEnabled true")
+                  g = g.replace("sourceCompatibility = JavaVersion.VERSION_1_8", "sourceCompatibility = JavaVersion.VERSION_11\n        coreLibraryDesugaringEnabled true")
+                  g = g.replace("sourceCompatibility JavaVersion.VERSION_1_8", "sourceCompatibility JavaVersion.VERSION_11\n        coreLibraryDesugaringEnabled true")
+                  g = g.replace("targetCompatibility = JavaVersion.VERSION_1_8", "targetCompatibility = JavaVersion.VERSION_11")
+                  g = g.replace("targetCompatibility JavaVersion.VERSION_1_8", "targetCompatibility JavaVersion.VERSION_11")
+                  g = g.replace("jvmTarget = 1.8", "jvmTarget = \"11\"")
+                  g = g.replace("jvmTarget = JavaVersion.VERSION_1_8", "jvmTarget = \"11\"")
+                  
                   if "coreLibraryDesugaringEnabled" not in g:
-                      g = g.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
+                      g = g.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true\n        sourceCompatibility JavaVersion.VERSION_11\n        targetCompatibility JavaVersion.VERSION_11")
+                  
+                  if "signingConfig = signingConfigs.debug" not in g and "signingConfig signingConfigs.debug" not in g:
+                      g = g.replace("buildTypes {", "buildTypes {\n        release {\n            signingConfig = signingConfigs.debug\n        }")
+                  
                   if "desugar_jdk_libs" not in g:
-                      g += "\ndependencies {\n    coreLibraryDesugaring \"com.android.tools:desugar_jdk_libs:2.0.4\"\n}\n"
+                      g += "\ndependencies {\n    coreLibraryDesugaring \"com.android.tools:desugar_jdk_libs:2.1.4\"\n}\n"
+                  
                   with open(gfile, "w") as f:
                       f.write(g)
 
-          # Patch manifest
+          # Patch manifest (izin alarm, wake lock, dan receiver)
           mfile = "android/app/src/main/AndroidManifest.xml"
           if os.path.isfile(mfile):
               with open(mfile, "r") as f:
@@ -120,7 +132,6 @@ jobs:
               with open(mfile, "w") as f:
                   f.write(m)
 
-          subprocess.run(["flutter", "pub", "get"], check=True)
           print("Setup berhasil 100%!")
           '
 
@@ -128,10 +139,21 @@ jobs:
         run: |
           set -e
           cd /tmp/build_app
+          flutter clean
+          flutter pub get
           flutter build apk --release --no-tree-shake-icons
-          cp -f build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/app-release.apk"
-          echo "File APK berhasil digenerate di $GITHUB_WORKSPACE/app-release.apk"
-          ls -lh "$GITHUB_WORKSPACE/app-release.apk"
+
+          # Cari file APK yang dihasilkan
+          APK_FILE=$(find build/app/outputs -name "*.apk" | head -n 1)
+          if [ -n "$APK_FILE" ]; then
+            cp -f "$APK_FILE" "$GITHUB_WORKSPACE/app-release.apk"
+            echo "File APK berhasil ditemukan dan disalin dari: $APK_FILE"
+            ls -lh "$GITHUB_WORKSPACE/app-release.apk"
+          else
+            echo "ERROR: File APK tidak ditemukan!"
+            find build || true
+            exit 1
+          fi
 
       - name: 6. Upload APK Artifact
         uses: actions/upload-artifact@v4
