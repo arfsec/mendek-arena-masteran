@@ -35,7 +35,7 @@ jobs:
             unzip -q -o mendek_arena_masteran_burung_flutter.zip -d /tmp/extracted_src
           fi
 
-          echo "=== 2. Menyiapkan Proyek Bersih dan Dependensi ==="
+          echo "=== 2. Menyiapkan Proyek Bersih dan Konfigurasi Android ==="
           python3 -c '
           import os, shutil, subprocess, sys
 
@@ -69,67 +69,160 @@ jobs:
           shutil.copytree(os.path.join(src_dir, "lib"), os.path.join(build_dir, "lib"))
           shutil.copy2(os.path.join(src_dir, "pubspec.yaml"), os.path.join(build_dir, "pubspec.yaml"))
 
-          # Patch gradle (compileSdk 34, minSdk 23, desugaring 2.1.5, debug signing, no minification crash)
           os.chdir(build_dir)
-          for gfile in ["android/app/build.gradle", "android/app/build.gradle.kts"]:
-              if os.path.isfile(gfile):
-                  with open(gfile, "r") as f:
-                      g = f.read()
-                  g = g.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 34")
-                  g = g.replace("compileSdkVersion flutter.compileSdkVersion", "compileSdkVersion 34")
-                  g = g.replace("minSdk = flutter.minSdkVersion", "minSdk = 23\n        multiDexEnabled = true")
-                  g = g.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 23\n        multiDexEnabled true")
-                  g = g.replace("targetSdk = flutter.targetSdkVersion", "targetSdk = 34")
-                  g = g.replace("targetSdkVersion flutter.targetSdkVersion", "targetSdkVersion 34")
-                  
-                  if "coreLibraryDesugaringEnabled" not in g:
-                      g = g.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
-                  
-                  g = g.replace("signingConfig = signingConfigs.debug", "signingConfig = signingConfigs.debug\n            minifyEnabled false\n            shrinkResources false")
-                  
-                  if "desugar_jdk_libs" not in g:
-                      g += "\ndependencies {\n    coreLibraryDesugaring \"com.android.tools:desugar_jdk_libs:2.1.5\"\n}\n"
-                  
-                  with open(gfile, "w") as f:
-                      f.write(g)
 
-          # Patch manifest (izin alarm, wake lock, dan receiver yang valid)
-          mfile = "android/app/src/main/AndroidManifest.xml"
-          if os.path.isfile(mfile):
-              with open(mfile, "r") as f:
-                  m = f.read()
-              perms = """
-                  <uses-permission android:name="android.permission.INTERNET" />
-                  <uses-permission android:name="android.permission.WAKE_LOCK" />
-                  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-                  <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-                  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-                  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-                  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-                  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-              """
-              receivers = """
-                      <receiver
-                          android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
-                          android:exported="false">
-                          <intent-filter>
-                              <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                              <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
-                          </intent-filter>
-                      </receiver>
-                      <receiver
-                          android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
-                          android:exported="false" />
-              """
-              if "SCHEDULE_EXACT_ALARM" not in m:
-                  m = m.replace("<application", perms + "\n    <application")
-              if "ScheduledNotificationBootReceiver" not in m:
-                  m = m.replace("</application>", receivers + "\n    </application>")
-              m = m.replace("<activity", "<activity\n            android:showWhenLocked=\"true\"\n            android:turnScreenOn=\"true\"")
-              with open(mfile, "w") as f:
-                  f.write(m)
+          # 1. Tulis android/app/build.gradle secara langsung (Java 11, desugaring 2.0.4, compileSdk 34, minSdk 23)
+          app_gradle = """plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
 
-          print("Setup berhasil 100%!")
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader("UTF-8") { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
+def flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
+
+android {
+    namespace "com.mendekarena.masteranburung"
+    compileSdk 34
+    ndkVersion flutter.ndkVersion
+
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+
+    defaultConfig {
+        applicationId "com.mendekarena.masteranburung"
+        minSdk 23
+        targetSdk 34
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+        multiDexEnabled true
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+        }
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+}
+
+flutter {
+    source "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
+    implementation "androidx.multidex:multidex:2.0.1"
+}
+"""
+          os.makedirs("android/app", exist_ok=True)
+          with open("android/app/build.gradle", "w") as f:
+              f.write(app_gradle)
+
+          # 2. Tulis android/gradle.properties
+          gradle_props = """org.gradle.jvmargs=-Xmx4096M -Dfile.encoding=UTF-8
+android.useAndroidX=true
+android.enableJetifier=true
+android.enableResourceShrinker=false
+"""
+          with open("android/gradle.properties", "w") as f:
+              f.write(gradle_props)
+
+          # 3. Tulis android/app/src/main/AndroidManifest.xml
+          manifest = """<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <application
+        android:label="Mendek Arena Masteran Burung"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
+
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>
+"""
+          os.makedirs("android/app/src/main", exist_ok=True)
+          with open("android/app/src/main/AndroidManifest.xml", "w") as f:
+              f.write(manifest)
+
+          # 4. Buat MainActivity.kt yang sesuai
+          kt_dir = "android/app/src/main/kotlin/com/mendekarena/masteranburung"
+          os.makedirs(kt_dir, exist_ok=True)
+          with open(os.path.join(kt_dir, "MainActivity.kt"), "w") as f:
+              f.write("""package com.mendekarena.masteranburung
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity: FlutterActivity() {
+}
+""")
+
+          print("Konfigurasi Android Bersih Berhasil Disiapkan 100%!")
           '
 
       - name: 5. Build Android APK
@@ -147,7 +240,7 @@ jobs:
           fi
 
           # Cari file APK yang berhasil digenerate di build directory
-          APK_FILE=$(find build/app/outputs -name "*.apk" | head -n 1)
+          APK_FILE=$(find build -name "*.apk" -not -name "*unaligned*" | head -n 1)
           if [ -n "$APK_FILE" ]; then
             cp -f "$APK_FILE" "$GITHUB_WORKSPACE/Mendek-Arena-Masteran.apk"
             echo "### ✅ APK Siap Dipasang Berhasil Dibuat!" >> $GITHUB_STEP_SUMMARY
