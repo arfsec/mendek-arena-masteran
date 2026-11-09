@@ -35,10 +35,9 @@ jobs:
             unzip -q -o mendek_arena_masteran_burung_flutter.zip -d /tmp/extracted_src
           fi
 
-          echo "=== 2. Menyiapkan Proyek Bersih dan Konfigurasi Android ==="
+          echo "=== 2. Menyiapkan Proyek Bersih ==="
           python3 -c '
           import os, shutil, subprocess, sys
-
           candidates = [
               "/tmp/extracted_src/mendek_arena_masteran_burung_flutter",
               "/tmp/extracted_src",
@@ -50,180 +49,35 @@ jobs:
               if os.path.isdir(os.path.join(c, "lib")) and os.path.isfile(os.path.join(c, "pubspec.yaml")):
                   src_dir = os.path.abspath(c)
                   break
-
           if not src_dir:
               print("ERROR: Sumber kode tidak ditemukan!")
               sys.exit(1)
-
-          print(f"Sumber ditemukan: {src_dir}")
-
-          # Buat proyek Flutter bersih di /tmp/build_app
           build_dir = "/tmp/build_app"
           if os.path.exists(build_dir):
               shutil.rmtree(build_dir)
-
           subprocess.run(["flutter", "create", "--org", "com.mendekarena", "--project-name", "mendek_arena_masteran_burung", "--platforms=android", build_dir], check=True)
-
-          # Salin file lib dan pubspec
           shutil.rmtree(os.path.join(build_dir, "lib"), ignore_errors=True)
           shutil.copytree(os.path.join(src_dir, "lib"), os.path.join(build_dir, "lib"))
           shutil.copy2(os.path.join(src_dir, "pubspec.yaml"), os.path.join(build_dir, "pubspec.yaml"))
-
-          os.chdir(build_dir)
-
-          # 1. Tulis android/app/build.gradle secara langsung (Java 11, desugaring 2.0.4, compileSdk 34, minSdk 23)
-          app_gradle = """plugins {
-    id "com.android.application"
-    id "kotlin-android"
-    id "dev.flutter.flutter-gradle-plugin"
-}
-
-def localProperties = new Properties()
-def localPropertiesFile = rootProject.file("local.properties")
-if (localPropertiesFile.exists()) {
-    localPropertiesFile.withReader("UTF-8") { reader ->
-        localProperties.load(reader)
-    }
-}
-
-def flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
-def flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
-
-android {
-    namespace "com.mendekarena.masteranburung"
-    compileSdk 34
-    ndkVersion flutter.ndkVersion
-
-    compileOptions {
-        coreLibraryDesugaringEnabled true
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
-    }
-
-    kotlinOptions {
-        jvmTarget = "11"
-    }
-
-    defaultConfig {
-        applicationId "com.mendekarena.masteranburung"
-        minSdk 23
-        targetSdk 34
-        versionCode flutterVersionCode.toInteger()
-        versionName flutterVersionName
-        multiDexEnabled true
-    }
-
-    buildTypes {
-        release {
-            signingConfig signingConfigs.debug
-        }
-        debug {
-            signingConfig signingConfigs.debug
-        }
-    }
-}
-
-flutter {
-    source "../.."
-}
-
-dependencies {
-    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
-    implementation "androidx.multidex:multidex:2.0.1"
-}
-"""
-          os.makedirs("android/app", exist_ok=True)
-          with open("android/app/build.gradle", "w") as f:
-              f.write(app_gradle)
-
-          # 2. Tulis android/gradle.properties
-          gradle_props = """org.gradle.jvmargs=-Xmx4096M -Dfile.encoding=UTF-8
-android.useAndroidX=true
-android.enableJetifier=true
-android.enableResourceShrinker=false
-"""
-          with open("android/gradle.properties", "w") as f:
-              f.write(gradle_props)
-
-          # 3. Tulis android/app/src/main/AndroidManifest.xml
-          manifest = """<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
-    <application
-        android:label="Mendek Arena Masteran Burung"
-        android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:taskAffinity=""
-            android:theme="@style/LaunchTheme"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-            android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true">
-            <meta-data
-              android:name="io.flutter.embedding.android.NormalTheme"
-              android:resource="@style/NormalTheme"
-              />
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity>
-
-        <receiver
-            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
-            </intent-filter>
-        </receiver>
-        <receiver
-            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
-            android:exported="false" />
-
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2" />
-    </application>
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.PROCESS_TEXT"/>
-            <data android:mimeType="text/plain"/>
-        </intent>
-    </queries>
-</manifest>
-"""
-          os.makedirs("android/app/src/main", exist_ok=True)
-          with open("android/app/src/main/AndroidManifest.xml", "w") as f:
-              f.write(manifest)
-
-          # 4. Buat MainActivity.kt yang sesuai
-          kt_dir = "android/app/src/main/kotlin/com/mendekarena/masteranburung"
-          os.makedirs(kt_dir, exist_ok=True)
-          with open(os.path.join(kt_dir, "MainActivity.kt"), "w") as f:
-              f.write("""package com.mendekarena.masteranburung
-
-import io.flutter.embedding.android.FlutterActivity
-
-class MainActivity: FlutterActivity() {
-}
-""")
-
-          print("Konfigurasi Android Bersih Berhasil Disiapkan 100%!")
           '
+
+          echo "=== 3. Menulis Konfigurasi Android Bersih ==="
+          cd /tmp/build_app
+          mkdir -p android/app/src/main/kotlin/com/mendekarena/masteranburung
+          
+          # Tulis build.gradle
+          echo "cGx1Z2lucyB7CiAgICBpZCAiY29tLmFuZHJvaWQuYXBwbGljYXRpb24iCiAgICBpZCAia290bGluLWFuZHJvaWQiCiAgICBpZCAiZGV2LmZsdXR0ZXIuZmx1dHRlci1ncmFkbGUtcGx1Z2luIgp9CgpkZWYgbG9jYWxQcm9wZXJ0aWVzID0gbmV3IFByb3BlcnRpZXMoKQpkZWYgbG9jYWxQcm9wZXJ0aWVzRmlsZSA9IHJvb3RQcm9qZWN0LmZpbGUoImxvY2FsLnByb3BlcnRpZXMiKQppZiAobG9jYWxQcm9wZXJ0aWVzRmlsZS5leGlzdHMoKSkgewogICAgbG9jYWxQcm9wZXJ0aWVzRmlsZS53aXRoUmVhZGVyKCJVVEYtOCIpIHsgcmVhZGVyIC0+CiAgICAgICAgbG9jYWxQcm9wZXJ0aWVzLmxvYWQocmVhZGVyKQogICAgfQp9CgpkZWYgZmx1dHRlclZlcnNpb25Db2RlID0gbG9jYWxQcm9wZXJ0aWVzLmdldFByb3BlcnR5KCJmbHV0dGVyLnZlcnNpb25Db2RlIikgPzogIjEiCmRlZiBmbHV0dGVyVmVyc2lvbk5hbWUgPSBsb2NhbFByb3BlcnRpZXMuZ2V0UHJvcGVydHkoImZsdXR0ZXIudmVyc2lvbk5hbWUiKSA/OiAiMS4wIgoKYW5kcm9pZCB7CiAgICBuYW1lc3BhY2UgImNvbS5tZW5kZWthcmVuYS5tYXN0ZXJhbmJ1cnVuZyIKICAgIGNvbXBpbGVTZGsgMzQKICAgIG5ka1ZlcnNpb24gZmx1dHRlci5uZGtWZXJzaW9uCgogICAgY29tcGlsZU9wdGlvbnMgewogICAgICAgIGNvcmVMaWJyYXJ5RGVzdWdhcmluZ0VuYWJsZWQgdHJ1ZQogICAgICAgIHNvdXJjZUNvbXBhdGliaWxpdHkgSmF2YVZlcnNpb24uVkVSU0lPTl8xMQogICAgICAgIHRhcmdldENvbXBhdGliaWxpdHkgSmF2YVZlcnNpb24uVkVSU0lPTl8xMQogICAgfQoKICAgIGtvdGxpbk9wdGlvbnMgewogICAgICAgIGp2bVRhcmdldCA9ICIxMSIKICAgIH0KCiAgICBkZWZhdWx0Q29uZmlnIHsKICAgICAgICBhcHBsaWNhdGlvbklkICJjb20ubWVuZGVrYXJlbmEubWFzdGVyYW5idXJ1bmciCiAgICAgICAgbWluU2RrIDIzCiAgICAgICAgdGFyZ2V0U2RrIDM0CiAgICAgICAgdmVyc2lvbkNvZGUgZmx1dHRlclZlcnNpb25Db2RlLnRvSW50ZWdlcigpCiAgICAgICAgdmVyc2lvbk5hbWUgZmx1dHRlclZlcnNpb25OYW1lCiAgICAgICAgbXVsdGlEZXhFbmFibGVkIHRydWUKICAgIH0KCiAgICBidWlsZFR5cGVzIHsKICAgICAgICByZWxlYXNlIHsKICAgICAgICAgICAgc2lnbmluZ0NvbmZpZyBzaWduaW5nQ29uZmlncy5kZWJ1ZwogICAgICAgIH0KICAgICAgICBkZWJ1ZyB7CiAgICAgICAgICAgIHNpZ25pbmdDb25maWcgc2lnbmluZ0NvbmZpZ3MuZGVidWcKICAgICAgICB9CiAgICB9Cn0KCmZsdXR0ZXIgewogICAgc291cmNlICIuLi8uLiIKfQoKZGVwZW5kZW5jaWVzIHsKICAgIGNvcmVMaWJyYXJ5RGVzdWdhcmluZyAiY29tLmFuZHJvaWQudG9vbHM6ZGVzdWdhcl9qZGtfbGliczoyLjAuNCIKICAgIGltcGxlbWVudGF0aW9uICJhbmRyb2lkeC5tdWx0aWRleDptdWx0aWRleDoyLjAuMSIKfQo=" | base64 -d > android/app/build.gradle
+
+          # Tulis gradle.properties
+          echo "b3JnLmdyYWRsZS5qdm1hcmdzPS1YbXg0MDk2TSAtRGZpbGUuZW5jb2Rpbmc9VVRGLTgKYW5kcm9pZC51c2VBbmRyb2lkWD10cnVlCmFuZHJvaWQuZW5hYmxlSmV0aWZpZXI9dHJ1ZQphbmRyb2lkLmVuYWJsZVJlc291cmNlU2hyaW5rZXI9ZmFsc2UK" | base64 -d > android/gradle.properties
+
+          # Tulis AndroidManifest.xml
+          echo "PG1hbmlmZXN0IHhtbG5zOmFuZHJvaWQ9Imh0dHA6Ly9zY2hlbWFzLmFuZHJvaWQuY29tL2Fway9yZXMvYW5kcm9pZCI+CiAgICA8dXNlcy1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLklOVEVSTkVUIiAvPgogICAgPHVzZXMtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5XQUtFX0xPQ0siIC8+CiAgICA8dXNlcy1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLlNDSEVEVUxFX0VYQUNUX0FMQVJNIiAvPgogICAgPHVzZXMtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5VU0VfRVhBQ1RfQUxBUk0iIC8+CiAgICA8dXNlcy1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLlBPU1RfTk9USUZJQ0FUSU9OUyIgLz4KICAgIDx1c2VzLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uUkVDRUlWRV9CT09UX0NPTVBMRVRFRCIgLz4KICAgIDx1c2VzLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uVVNFX0ZVTExfU0NSRUVOX0lOVEVOVCIgLz4KICAgIDx1c2VzLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uUkVRVUVTVF9JR05PUkVfQkFUVEVSWV9PUFRJTUlaQVRJT05TIiAvPgoKICAgIDxhcHBsaWNhdGlvbgogICAgICAgIGFuZHJvaWQ6bGFiZWw9Ik1lbmRlayBBcmVuYSBNYXN0ZXJhbiBCdXJ1bmciCiAgICAgICAgYW5kcm9pZDpuYW1lPSIke2FwcGxpY2F0aW9uTmFtZX0iCiAgICAgICAgYW5kcm9pZDppY29uPSJAbWlwbWFwL2ljX2xhdW5jaGVyIgogICAgICAgIGFuZHJvaWQ6dXNlc0NsZWFydGV4dFRyYWZmaWM9InRydWUiPgogICAgICAgIDxhY3Rpdml0eQogICAgICAgICAgICBhbmRyb2lkOm5hbWU9Ii5NYWluQWN0aXZpdHkiCiAgICAgICAgICAgIGFuZHJvaWQ6ZXhwb3J0ZWQ9InRydWUiCiAgICAgICAgICAgIGFuZHJvaWQ6bGF1bmNoTW9kZT0ic2luZ2xlVG9wIgogICAgICAgICAgICBhbmRyb2lkOnRhc2tBZmZpbml0eT0iIgogICAgICAgICAgICBhbmRyb2lkOnRoZW1lPSJAc3R5bGUvTGF1bmNoVGhlbWUiCiAgICAgICAgICAgIGFuZHJvaWQ6Y29uZmlnQ2hhbmdlcz0ib3JpZW50YXRpb258a2V5Ym9hcmRIaWRkZW58a2V5Ym9hcmR8c2NyZWVuU2l6ZXxzbWFsbGVzdFNjcmVlblNpemV8bG9jYWxlfGxheW91dERpcmVjdGlvbnxmb250U2NhbGV8c2NyZWVuTGF5b3V0fGRlbnNpdHl8dWlNb2RlIgogICAgICAgICAgICBhbmRyb2lkOmhhcmR3YXJlQWNjZWxlcmF0ZWQ9InRydWUiCiAgICAgICAgICAgIGFuZHJvaWQ6d2luZG93U29mdElucHV0TW9kZT0iYWRqdXN0UmVzaXplIgogICAgICAgICAgICBhbmRyb2lkOnNob3dXaGVuTG9ja2VkPSJ0cnVlIgogICAgICAgICAgICBhbmRyb2lkOnR1cm5TY3JlZW5Pbj0idHJ1ZSI+CiAgICAgICAgICAgIDxtZXRhLWRhdGEKICAgICAgICAgICAgICBhbmRyb2lkOm5hbWU9ImlvLmZsdXR0ZXIuZW1iZWRkaW5nLmFuZHJvaWQuTm9ybWFsVGhlbWUiCiAgICAgICAgICAgICAgYW5kcm9pZDpyZXNvdXJjZT0iQHN0eWxlL05vcm1hbFRoZW1lIgogICAgICAgICAgICAgIC8+CiAgICAgICAgICAgIDxpbnRlbnQtZmlsdGVyPgogICAgICAgICAgICAgICAgPGFjdGlvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQuaW50ZW50LmFjdGlvbi5NQUlOIi8+CiAgICAgICAgICAgICAgICA8Y2F0ZWdvcnkgYW5kcm9pZDpuYW1lPSJhbmRyb2lkLmludGVudC5jYXRlZ29yeS5MQVVOQ0hFUiIvPgogICAgICAgICAgICA8L2ludGVudC1maWx0ZXI+CiAgICAgICAgPC9hY3Rpdml0eT4KCiAgICAgICAgPHJlY2VpdmVyCiAgICAgICAgICAgIGFuZHJvaWQ6bmFtZT0iY29tLmRleHRlcm91cy5mbHV0dGVybG9jYWxub3RpZmljYXRpb25zLlNjaGVkdWxlZE5vdGlmaWNhdGlvbkJvb3RSZWNlaXZlciIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0iZmFsc2UiPgogICAgICAgICAgICA8aW50ZW50LWZpbHRlcj4KICAgICAgICAgICAgICAgIDxhY3Rpb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLmludGVudC5hY3Rpb24uQk9PVF9DT01QTEVURUQiLz4KICAgICAgICAgICAgICAgIDxhY3Rpb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLmludGVudC5hY3Rpb24uTVlfUEFDS0FHRV9SRVBMQUNFRCIvPgogICAgICAgICAgICA8L2ludGVudC1maWx0ZXI+CiAgICAgICAgPC9yZWNlaXZlcj4KICAgICAgICA8cmVjZWl2ZXIKICAgICAgICAgICAgYW5kcm9pZDpuYW1lPSJjb20uZGV4dGVyb3VzLmZsdXR0ZXJsb2NhbG5vdGlmaWNhdGlvbnMuQWN0aW9uQnJvYWRjYXN0UmVjZWl2ZXIiCiAgICAgICAgICAgIGFuZHJvaWQ6ZXhwb3J0ZWQ9ImZhbHNlIiAvPgoKICAgICAgICA8bWV0YS1kYXRhCiAgICAgICAgICAgIGFuZHJvaWQ6bmFtZT0iZmx1dHRlckVtYmVkZGluZyIKICAgICAgICAgICAgYW5kcm9pZDp2YWx1ZT0iMiIgLz4KICAgIDwvYXBwbGljYXRpb24+CiAgICA8cXVlcmllcz4KICAgICAgICA8aW50ZW50PgogICAgICAgICAgICA8YWN0aW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5pbnRlbnQuYWN0aW9uLlBST0NFU1NfVEVYVCIvPgogICAgICAgICAgICA8ZGF0YSBhbmRyb2lkOm1pbWVUeXBlPSJ0ZXh0L3BsYWluIi8+CiAgICAgICAgPC9pbnRlbnQ+CiAgICA8L3F1ZXJpZXM+CjwvbWFuaWZlc3Q+Cg==" | base64 -d > android/app/src/main/AndroidManifest.xml
+
+          # Tulis MainActivity.kt
+          echo "cGFja2FnZSBjb20ubWVuZGVrYXJlbmEubWFzdGVyYW5idXJ1bmcKCmltcG9ydCBpby5mbHV0dGVyLmVtYmVkZGluZy5hbmRyb2lkLkZsdXR0ZXJBY3Rpdml0eQoKY2xhc3MgTWFpbkFjdGl2aXR5OiBGbHV0dGVyQWN0aXZpdHkoKSB7Cn0K" | base64 -d > android/app/src/main/kotlin/com/mendekarena/masteranburung/MainActivity.kt
+
+          echo "Setup Android 100% Sempurna!"
 
       - name: 5. Build Android APK
         run: |
