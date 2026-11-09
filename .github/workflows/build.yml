@@ -31,42 +31,146 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: 5. Generate Android Gradle Wrapper & Setup
+      - name: 5. Persiapkan Android Harness Lengkap
         run: |
           DIR="."
           if [ -d "mendek_arena_masteran_burung_flutter" ]; then
             DIR="mendek_arena_masteran_burung_flutter"
-          elif [ -d "flutter_project" ]; then
-            DIR="flutter_project"
           fi
           cd "$DIR"
 
-          # Simpan Manifest kustom dengan izin alarm
-          cp android/app/src/main/AndroidManifest.xml /tmp/CustomManifest.xml
+          # 1. Simpan lib/ dan pubspec.yaml
+          mkdir -p /tmp/backup_app
+          cp -r lib /tmp/backup_app/
+          cp pubspec.yaml /tmp/backup_app/
 
-          # Generate Gradle wrapper resmi bawaan Flutter runner
-          flutter create . --platforms=android --org=com.mendekarena
+          # 2. Generate harness Android resmi yang 100% kompatibel dengan Flutter runner
+          flutter create --org com.mendekarena --project-name mendek_arena_masteran_burung .
 
-          # Kembalikan Custom Manifest
-          cp /tmp/CustomManifest.xml android/app/src/main/AndroidManifest.xml
+          # 3. Kembalikan kode aplikasi kita
+          cp -r /tmp/backup_app/lib .
+          cp /tmp/backup_app/pubspec.yaml .
 
-          # Pasang minSdk 21 dan desugaring
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle || true
-          if ! grep -q "desugar_jdk_libs" android/app/build.gradle; then
-            sed -i '/dependencies {/a \    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"' android/app/build.gradle
-            sed -i '/compileOptions {/a \        coreLibraryDesugaringEnabled true' android/app/build.gradle
-          fi
+          # 4. Tulis android/app/build.gradle dengan Java 17 dan desugaring
+          cat << 'EOF' > android/app/build.gradle
+          plugins {
+              id "com.android.application"
+              id "kotlin-android"
+              id "dev.flutter.flutter-gradle-plugin"
+          }
+
+          android {
+              namespace = "com.mendekarena.masteranburung"
+              compileSdk = 34
+              ndkVersion = flutter.ndkVersion
+
+              compileOptions {
+                  coreLibraryDesugaringEnabled = true
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+
+              defaultConfig {
+                  applicationId = "com.mendekarena.masteranburung"
+                  minSdk = 21
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0.0"
+                  multiDexEnabled = true
+              }
+
+              buildTypes {
+                  release {
+                      signingConfig = signingConfigs.debug
+                  }
+              }
+
+              lint {
+                  abortOnError = false
+                  checkReleaseBuilds = false
+              }
+          }
+
+          flutter {
+              source = "../.."
+          }
+
+          dependencies {
+              coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
+          }
+          EOF
+
+          # 5. Tulis AndroidManifest.xml lengkap dengan semua izin alarm & player
+          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+              <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+              <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
+              <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+              <application
+                  android:label="Mendek Arena Masteran Burung"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher"
+                  android:usesCleartextTraffic="true"
+                  android:hardwareAccelerated="true">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:theme="@style/LaunchTheme"
+                      android:showWhenLocked="true"
+                      android:turnScreenOn="true"
+                      android:keepScreenOn="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+
+                  <receiver
+                      android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+                      android:exported="false">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                          <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                      </intent-filter>
+                  </receiver>
+
+                  <receiver
+                      android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+                      android:exported="false" />
+
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+              </application>
+          </manifest>
+          EOF
 
           flutter pub get
 
-      - name: 6. Build Release APK (Debug Signature untuk Sideload)
+      - name: 6. Build Release APK
         run: |
           DIR="."
           if [ -d "mendek_arena_masteran_burung_flutter" ]; then
             DIR="mendek_arena_masteran_burung_flutter"
-          elif [ -d "flutter_project" ]; then
-            cd flutter_project
           fi
           cd "$DIR"
           flutter build apk --release --no-tree-shake-icons
