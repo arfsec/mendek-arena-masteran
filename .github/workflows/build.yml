@@ -31,23 +31,45 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: 5. Install Dependencies (pub get)
+      - name: 5. Generate Android Gradle Wrapper & Setup
         run: |
+          DIR="."
           if [ -d "mendek_arena_masteran_burung_flutter" ]; then
-            cd mendek_arena_masteran_burung_flutter
+            DIR="mendek_arena_masteran_burung_flutter"
           elif [ -d "flutter_project" ]; then
-            cd flutter_project
+            DIR="flutter_project"
           fi
+          cd "$DIR"
+
+          # Simpan Manifest kustom dengan izin alarm
+          cp android/app/src/main/AndroidManifest.xml /tmp/CustomManifest.xml
+
+          # Generate Gradle wrapper resmi bawaan Flutter runner
+          flutter create . --platforms=android --org=com.mendekarena
+
+          # Kembalikan Custom Manifest
+          cp /tmp/CustomManifest.xml android/app/src/main/AndroidManifest.xml
+
+          # Pasang minSdk 21 dan desugaring
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle || true
+          if ! grep -q "desugar_jdk_libs" android/app/build.gradle; then
+            sed -i '/dependencies {/a \    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"' android/app/build.gradle
+            sed -i '/compileOptions {/a \        coreLibraryDesugaringEnabled true' android/app/build.gradle
+          fi
+
           flutter pub get
 
-      - name: 6. Build Release APK
+      - name: 6. Build Release APK (Debug Signature untuk Sideload)
         run: |
+          DIR="."
           if [ -d "mendek_arena_masteran_burung_flutter" ]; then
-            cd mendek_arena_masteran_burung_flutter
+            DIR="mendek_arena_masteran_burung_flutter"
           elif [ -d "flutter_project" ]; then
             cd flutter_project
           fi
-          flutter build apk --release
+          cd "$DIR"
+          flutter build apk --release --no-tree-shake-icons
 
       - name: 7. Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -55,5 +77,6 @@ jobs:
           name: Mendek-Arena-Masteran-Burung-APK
           path: |
             **/build/app/outputs/flutter-apk/app-release.apk
+            **/build/app/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
