@@ -31,7 +31,7 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: 5. Persiapkan Android Harness Lengkap
+      - name: 5. Generate Android Harness & Patch
         run: |
           DIR="."
           if [ -d "mendek_arena_masteran_burung_flutter" ]; then
@@ -39,111 +39,42 @@ jobs:
           fi
           cd "$DIR"
 
-          # 1. Simpan lib/ dan pubspec.yaml
-          mkdir -p /tmp/backup_app
-          cp -r lib /tmp/backup_app/
-          cp pubspec.yaml /tmp/backup_app/
+          # 1. Hapus folder android lama yang tidak memiliki gradle wrapper
+          rm -rf android
 
-          # 2. Generate harness Android resmi yang 100% kompatibel dengan Flutter runner
-          flutter create --org com.mendekarena --project-name mendek_arena_masteran_burung .
+          # 2. Generate android harness resmi Flutter 3.22
+          flutter create --org com.mendekarena --project-name mendek_arena_masteran_burung --platforms=android .
 
-          # 3. Kembalikan kode aplikasi kita
-          cp -r /tmp/backup_app/lib .
-          cp /tmp/backup_app/pubspec.yaml .
+          # 3. Patch build.gradle (desugaring & minSdk 21)
+          python3 -c '
+          path = "android/app/build.gradle"
+          with open(path, "r") as f:
+              s = f.read()
+          s = s.replace("minSdk = flutter.minSdkVersion", "minSdk = 21")
+          s = s.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21")
+          if "desugar_jdk_libs" not in s:
+              s = s.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
+              s += "\ndependencies {\n    coreLibraryDesugaring \"com.android.tools:desugar_jdk_libs:2.0.4\"\n}\n"
+          with open(path, "w") as f:
+              f.write(s)
+          '
 
-          # 4. Tulis android/app/build.gradle dengan Java 17 dan desugaring
-          cat << 'EOF' > android/app/build.gradle
-          plugins {
-              id "com.android.application"
-              id "kotlin-android"
-              id "dev.flutter.flutter-gradle-plugin"
-          }
-
-          android {
-              namespace = "com.mendekarena.masteranburung"
-              compileSdk = 34
-              ndkVersion = flutter.ndkVersion
-
-              compileOptions {
-                  coreLibraryDesugaringEnabled = true
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-
-              defaultConfig {
-                  applicationId = "com.mendekarena.masteranburung"
-                  minSdk = 21
-                  targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0.0"
-                  multiDexEnabled = true
-              }
-
-              buildTypes {
-                  release {
-                      signingConfig = signingConfigs.debug
-                  }
-              }
-
-              lint {
-                  abortOnError = false
-                  checkReleaseBuilds = false
-              }
-          }
-
-          flutter {
-              source = "../.."
-          }
-
-          dependencies {
-              coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
-          }
-          EOF
-
-          # 5. Tulis AndroidManifest.xml lengkap dengan semua izin alarm & player
-          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
+          # 4. Patch AndroidManifest.xml (izin alarm, wake lock, boot receiver)
+          python3 -c '
+          path = "android/app/src/main/AndroidManifest.xml"
+          with open(path, "r") as f:
+              s = f.read()
+          perms = """
               <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
               <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
               <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-              <uses-permission android:name="android.permission.WAKE_LOCK" />
               <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-              <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
-              <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
-              <application
-                  android:label="Mendek Arena Masteran Burung"
-                  android:name="${applicationName}"
-                  android:icon="@mipmap/ic_launcher"
-                  android:usesCleartextTraffic="true"
-                  android:hardwareAccelerated="true">
-
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:launchMode="singleTop"
-                      android:theme="@style/LaunchTheme"
-                      android:showWhenLocked="true"
-                      android:turnScreenOn="true"
-                      android:keepScreenOn="true"
-                      android:windowSoftInputMode="adjustResize">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
-                      </intent-filter>
-                  </activity>
-
+          """
+          receivers = """
                   <receiver
                       android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
                       android:exported="false">
@@ -152,17 +83,16 @@ jobs:
                           <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
                       </intent-filter>
                   </receiver>
-
                   <receiver
                       android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
                       android:exported="false" />
-
-                  <meta-data
-                      android:name="flutterEmbedding"
-                      android:value="2" />
-              </application>
-          </manifest>
-          EOF
+          """
+          s = s.replace("<application", perms + "\n    <application")
+          s = s.replace("<activity", "<activity\n            android:showWhenLocked=\"true\"\n            android:turnScreenOn=\"true\"\n            android:keepScreenOn=\"true\"")
+          s = s.replace("</application>", receivers + "\n    </application>")
+          with open(path, "w") as f:
+              f.write(s)
+          '
 
           flutter pub get
 
