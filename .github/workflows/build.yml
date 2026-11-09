@@ -20,122 +20,123 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 3. Set Up Flutter
+      - name: 3. Set Up Flutter 3.22
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.22.2'
           channel: 'stable'
 
       - name: 4. Prepare & Scaffold Clean Flutter Project
         run: |
           set -e
-          echo "=== 1. Mengekstrak kode sumber Flutter ==="
+          echo "=== 1. Mengekstrak ZIP Proyek ==="
           mkdir -p /tmp/extracted_src
-
-          # Ekstrak file zip jika ada di repositori
           if [ -f "mendek_arena_masteran_burung_flutter.zip" ]; then
             unzip -q -o mendek_arena_masteran_burung_flutter.zip -d /tmp/extracted_src
-          else
-            ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
-            if [ -n "$ZIP_FILE" ]; then
-              echo "Mengekstrak file: $ZIP_FILE"
-              unzip -q -o "$ZIP_FILE" -d /tmp/extracted_src
-            fi
           fi
 
-          # Deteksi lokasi folder lib dan pubspec.yaml
-          SRC_DIR=""
-          if [ -d "/tmp/extracted_src/lib" ]; then
-            SRC_DIR="/tmp/extracted_src"
-          elif [ -d "/tmp/extracted_src/mendek_arena_masteran_burung_flutter/lib" ]; then
-            SRC_DIR="/tmp/extracted_src/mendek_arena_masteran_burung_flutter"
-          elif [ -d "lib" ]; then
-            SRC_DIR="."
-          elif [ -d "flutter_project/lib" ]; then
-            SRC_DIR="flutter_project"
-          fi
-
-          echo "Direktori sumber Flutter: $SRC_DIR"
-
-          # 2. Buat proyek Flutter baru yang bersih di /tmp/build_app (bebas karakter '-' dari nama repo)
-          rm -rf /tmp/build_app
-          flutter create --org com.mendekarena --project-name mendek_arena_masteran_burung /tmp/build_app
-
-          # 3. Timpa file lib dan pubspec.yaml dengan kode aplikasi masteran burung kita
-          rm -rf /tmp/build_app/lib
-          cp -rf "$SRC_DIR/lib" /tmp/build_app/lib
-          cp -f "$SRC_DIR/pubspec.yaml" /tmp/build_app/pubspec.yaml
-
-          cd /tmp/build_app
-
-          # 4. Patch build.gradle (desugaring & minSdk 21 untuk notifikasi alarm Android)
+          echo "=== 2. Menyiapkan Proyek Bersih dan Dependensi ==="
           python3 -c '
-          path = "android/app/build.gradle"
-          with open(path, "r") as f:
-              s = f.read()
-          s = s.replace("minSdk = flutter.minSdkVersion", "minSdk = 21\n        multiDexEnabled = true")
-          s = s.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21\n        multiDexEnabled true")
-          if "coreLibraryDesugaringEnabled" not in s:
-              s = s.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
-          if "desugar_jdk_libs" not in s:
-              s += "\ndependencies {\n    coreLibraryDesugaring \"com.android.tools:desugar_jdk_libs:2.0.4\"\n}\n"
-          with open(path, "w") as f:
-              f.write(s)
-          '
+          import os, shutil, subprocess, sys
 
-          # 5. Patch AndroidManifest.xml (izin alarm, wake lock, dan receiver)
-          python3 -c '
-          path = "android/app/src/main/AndroidManifest.xml"
-          with open(path, "r") as f:
-              s = f.read()
-          perms = """
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.WAKE_LOCK" />
-              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-              <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-          """
-          receivers = """
-                  <receiver
-                      android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
-                      android:exported="false">
-                      <intent-filter>
-                          <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                          <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
-                      </intent-filter>
-                  </receiver>
-                  <receiver
-                      android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
-                      android:exported="false" />
-          """
-          if "SCHEDULE_EXACT_ALARM" not in s:
-              s = s.replace("<application", perms + "\n    <application")
-          if "ScheduledNotificationBootReceiver" not in s:
-              s = s.replace("</application>", receivers + "\n    </application>")
-          s = s.replace("<activity", "<activity\n            android:showWhenLocked=\"true\"\n            android:turnScreenOn=\"true\"\n            android:keepScreenOn=\"true\"")
-          with open(path, "w") as f:
-              f.write(s)
-          '
+          candidates = [
+              "/tmp/extracted_src/mendek_arena_masteran_burung_flutter",
+              "/tmp/extracted_src",
+              ".",
+              "flutter_project"
+          ]
+          src_dir = None
+          for c in candidates:
+              if os.path.isdir(os.path.join(c, "lib")) and os.path.isfile(os.path.join(c, "pubspec.yaml")):
+                  src_dir = os.path.abspath(c)
+                  break
 
-          flutter pub get
+          if not src_dir:
+              print("ERROR: Sumber kode tidak ditemukan!")
+              sys.exit(1)
+
+          print(f"Sumber ditemukan: {src_dir}")
+
+          # Buat proyek Flutter bersih di /tmp/build_app
+          build_dir = "/tmp/build_app"
+          if os.path.exists(build_dir):
+              shutil.rmtree(build_dir)
+
+          subprocess.run(["flutter", "create", "--org", "com.mendekarena", "--project-name", "mendek_arena_masteran_burung", "--platforms=android", build_dir], check=True)
+
+          # Salin file lib dan pubspec
+          shutil.rmtree(os.path.join(build_dir, "lib"), ignore_errors=True)
+          shutil.copytree(os.path.join(src_dir, "lib"), os.path.join(build_dir, "lib"))
+          shutil.copy2(os.path.join(src_dir, "pubspec.yaml"), os.path.join(build_dir, "pubspec.yaml"))
+
+          # Patch gradle
+          os.chdir(build_dir)
+          for gfile in ["android/app/build.gradle", "android/app/build.gradle.kts"]:
+              if os.path.isfile(gfile):
+                  with open(gfile, "r") as f:
+                      g = f.read()
+                  g = g.replace("minSdk = flutter.minSdkVersion", "minSdk = 21\n        multiDexEnabled = true")
+                  g = g.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21\n        multiDexEnabled true")
+                  if "coreLibraryDesugaringEnabled" not in g:
+                      g = g.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
+                  if "desugar_jdk_libs" not in g:
+                      g += "\ndependencies {\n    coreLibraryDesugaring \"com.android.tools:desugar_jdk_libs:2.0.4\"\n}\n"
+                  with open(gfile, "w") as f:
+                      f.write(g)
+
+          # Patch manifest
+          mfile = "android/app/src/main/AndroidManifest.xml"
+          if os.path.isfile(mfile):
+              with open(mfile, "r") as f:
+                  m = f.read()
+              perms = """
+                  <uses-permission android:name="android.permission.INTERNET" />
+                  <uses-permission android:name="android.permission.WAKE_LOCK" />
+                  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+                  <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+                  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+                  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+                  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+                  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              """
+              receivers = """
+                      <receiver
+                          android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+                          android:exported="false">
+                          <intent-filter>
+                              <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                              <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                          </intent-filter>
+                      </receiver>
+                      <receiver
+                          android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+                          android:exported="false" />
+              """
+              if "SCHEDULE_EXACT_ALARM" not in m:
+                  m = m.replace("<application", perms + "\n    <application")
+              if "ScheduledNotificationBootReceiver" not in m:
+                  m = m.replace("</application>", receivers + "\n    </application>")
+              m = m.replace("<activity", "<activity\n            android:showWhenLocked=\"true\"\n            android:turnScreenOn=\"true\"\n            android:keepScreenOn=\"true\"")
+              with open(mfile, "w") as f:
+                  f.write(m)
+
+          subprocess.run(["flutter", "pub", "get"], check=True)
+          print("Setup berhasil 100%!")
+          '
 
       - name: 5. Build Release APK
         run: |
           set -e
           cd /tmp/build_app
           flutter build apk --release --no-tree-shake-icons
-
-          # Salin file APK ke workspace agar terbaca oleh upload-artifact
-          mkdir -p "$GITHUB_WORKSPACE/build/app/outputs/flutter-apk"
-          cp -f /tmp/build_app/build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/build/app/outputs/flutter-apk/app-release.apk"
-          ls -lh "$GITHUB_WORKSPACE/build/app/outputs/flutter-apk/app-release.apk"
+          cp -f build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/app-release.apk"
+          echo "File APK berhasil digenerate di $GITHUB_WORKSPACE/app-release.apk"
+          ls -lh "$GITHUB_WORKSPACE/app-release.apk"
 
       - name: 6. Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Mendek-Arena-Masteran-Burung-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: app-release.apk
           if-no-files-found: error
           retention-days: 30
