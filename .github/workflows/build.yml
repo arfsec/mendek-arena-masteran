@@ -128,7 +128,7 @@ jobs:
                   m = m.replace("<application", perms + "\n    <application")
               if "ScheduledNotificationBootReceiver" not in m:
                   m = m.replace("</application>", receivers + "\n    </application>")
-              m = m.replace("<activity", "<activity\n            android:showWhenLocked=\"true\"\n            android:turnScreenOn=\"true\"\n            android:keepScreenOn=\"true\"")
+              m = m.replace("<activity", "<activity\n            android:showWhenLocked=\"true\"\n            android:turnScreenOn=\"true\"")
               with open(mfile, "w") as f:
                   f.write(m)
 
@@ -141,7 +141,7 @@ jobs:
           cd /tmp/build_app
           flutter clean
           flutter pub get
-          flutter build apk --release --no-tree-shake-icons
+          flutter build apk --release --no-tree-shake-icons --verbose
 
           # Cari file APK yang dihasilkan
           APK_FILE=$(find build/app/outputs -name "*.apk" | head -n 1)
